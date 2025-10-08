@@ -14,7 +14,7 @@ const port = process.env.PORT || 3000; // Render sẽ tự cung cấp PORT
 
 // Cho phép Vercel gọi đến server này
 app.use(cors({
-  origin: 'https://tavis-chem-scribe-lite.vercel.app/' // Tạm thời cho phép tất cả, sau này có thể đổi thành URL Vercel của bạn
+  origin: 'https://tavis-chem-scribe-lite.vercel.app' // Tạm thời cho phép tất cả, sau này có thể đổi thành URL Vercel của bạn
 }));
 
 // Cho phép server đọc dữ liệu JSON gửi lên
