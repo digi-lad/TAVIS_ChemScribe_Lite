@@ -56,7 +56,7 @@ async function callGeminiAPI(base64Image) {
       console.error("Lỗi: Không tìm thấy GEMINI_API_KEY trong biến môi trường.");
       return null;
   }
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`;
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${API_KEY}`;
   const newPrompt = `Bối cảnh: Bạn là một giáo viên khoa học đang giải thích một hình ảnh trong sách giáo khoa cho một học sinh khiếm thị qua lời nói. Nhiệm vụ: Phân tích hình ảnh được cung cấp và tạo ra một đoạn mô tả bằng văn nói, không chỉ mô tả những gì nhìn thấy mà còn giải thích các kiến thức khoa học liên quan. Quy tắc bắt buộc: 1. Câu mở đầu khái quát: Bắt đầu bằng một câu duy nhất để tóm tắt nội dung chính của hình ảnh. Câu này phải ngắn gọn và giúp người nghe xác định ngay lập tức đây có phải là hình ảnh họ cần hay không. (Ví dụ: "Đây là sơ đồ thí nghiệm điều chế khí chlorine trong phòng thí nghiệm.") 2. Mô tả chi tiết: Ngay sau câu mở đầu, hãy đi thẳng vào mô tả chi tiết và giải thích. 3. Giọng văn giáo viên: Dùng giọng văn tự tin, chắc chắn, và rõ ràng như đang giảng bài. Tránh tuyệt đối các từ ngữ phỏng đoán như "dường như", "có vẻ là", "có lẽ". 4. Trình tự logic: Mô tả theo một trình tự dễ theo dõi. Nếu là thí nghiệm, hãy đi từng bước một. 5. Giải thích "Tại sao": Sau khi mô tả một hiện tượng, hãy giải thích ngắn gọn nguyên nhân khoa học đằng sau nó. 6. Mở rộng kiến thức: Liên hệ các chi tiết trong ảnh với các khái niệm hoặc định luật khoa học lớn hơn khi có thể. 7. Kết thúc dứt khoát: Sau khi mô tả và giải thích xong, hãy kết thúc ngay. Tuyệt đối không đặt câu hỏi mở hay gợi ý một cuộc trò chuyện.`;
   
   const payload = {
