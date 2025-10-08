@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TAVIS.ChemScribe</title>
+    <style>
+        /* CSS is unchanged from your version */
+        :root {
+            --background-color: #000;
+            --text-color: yellow;
+            --font-size-main: 2.5rem;
+            --font-size-status: 1.8rem;
+            --font-size-description: 1.5rem;
+            --font-size-instruction: 1rem;
+        }
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: var(--background-color); color: var(--text-color); }
+        #app-container { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; cursor: pointer; user-select: none; padding: 20px; box-sizing: border-box; }
+        .screen.hidden { display: none; }
+        .capture-text-container { display: flex; flex-direction: column; align-items: center; line-height: 1; animation: pulse 2s infinite; }
+        .capture-text-large { font-size: 6rem; font-weight: bold; }
+        .capture-text-small { font-size: 2rem; font-weight: 300; letter-spacing: 2px; }
+        #processing-screen p { font-size: var(--font-size-status); }
+        #output-screen { justify-content: space-around; }
+        #description-text { font-size: var(--font-size-description); overflow-y: auto; max-height: 70vh; margin-bottom: 20px; scrollbar-width: none; -ms-overflow-style: none; }
+        #description-text::-webkit-scrollbar { display: none; }
+        #instruction-text { font-size: var(--font-size-instruction); color: yellow; position: absolute; bottom: 30px; }
+        @keyframes pulse { 0% { opacity: 0.7; } 50% { opacity: 1; } 100% { opacity: 0.7; } }
+    </style>
+</head>
+<body>
+    <!-- HTML is unchanged from your version -->
+    <div id="app-container" role="button" aria-label="Giao diện chính của ứng dụng TAVIS ChemScribe">
+        <div id="capture-screen" class="screen">
+            <div class="capture-text-container">
+                <span class="capture-text-large">CHẠM</span>
+                <br></br>
+                <span class="capture-text-small">ĐỂ CHỤP</span>
+            </div>
+        </div>
+        <div id="processing-screen" class="screen hidden">
+            <p>Đang xử lý hình ảnh...</p>
+        </div>
+        <div id="output-screen" class="screen hidden">
+            <p id="description-text"></p>
+            <p id="instruction-text">Chạm: Dừng/Phát | Giữ lâu: Đọc lại | Vuốt lên: Quay về</p>
+        </div>
+    </div>
+    <input type="file" id="image-input" accept="image/*" capture="environment" style="display: none;">
+
+    <script>
+        // --- !!! QUAN TRỌNG: THAY ĐỔI URL CỦA BACKEND SAU KHI TRIỂN KHAI ---
+        const BACKEND_URL = 'http://localhost:3000'; 
+
+        // DOM Elements are unchanged
+        const appContainer = document.getElementById('app-container');
+        const imageInput = document.getElementById('image-input');
+        const captureScreen = document.getElementById('capture-screen');
+        const processingScreen = document.getElementById('processing-screen');
+        const outputScreen = document.getElementById('output-screen');
+        const descriptionText = document.getElementById('description-text');
+
+        // State variables are unchanged
+        let vietnameseVoice = null;
+        let sentenceQueue = [];
+        let fullSentenceList = [];
+        let currentSentenceIndex = -1;
+        let isSpeaking = false; 
+        let isPaused = false;
+        let touchstartX = 0;
+        let touchstartY = 0;
+        let touchendX = 0;
+        let touchendY = 0;
+        let longPressTimeout = null;
+        let isSwiping = false;
+        let longPressTriggered = false;
+        let scrollInterval = null;
+        let processingSpeechInterval = null;
+
+        // --- Functions ---
+        
+        // setupVietnameseVoice, Sound Functions, showScreen are unchanged
+        function setupVietnameseVoice() {
+            const setVoice = () => {
+                const voices = speechSynthesis.getVoices();
+                vietnameseVoice = voices.find(voice => voice.lang === 'vi-VN');
+                if (!vietnameseVoice) console.warn("Không tìm thấy giọng đọc tiếng Việt.");
+            };
+            setVoice();
+            if (speechSynthesis.onvoiceschanged !== undefined) {
+                speechSynthesis.onvoiceschanged = setVoice;
+            }
+        }
+        function startProcessingSpeechLoop() {
+            stopSpeech();
+            const speakProcessingMessage = () => {
+                if (!speechSynthesis.speaking) {
+                    const utterance = new SpeechSynthesisUtterance("Đang xử lý, vui lòng chờ.");
+                    utterance.lang = 'vi-VN';
+                    if (vietnameseVoice) utterance.voice = vietnameseVoice;
+                    speechSynthesis.speak(utterance);
+                }
+            };
+            speakProcessingMessage();
+            processingSpeechInterval = setInterval(speakProcessingMessage, 5000);
+        }
+        function stopProcessingSpeechLoop() {
+            clearInterval(processingSpeechInterval);
+            processingSpeechInterval = null;
+            speechSynthesis.cancel();
+        }
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(screen => screen.classList.add('hidden'));
+            document.getElementById(screenId)?.classList.remove('hidden');
+        }
+        function convertFileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+            });
+        }
+        
+        // --- NEW FUNCTION: Call Backend to process image ---
+        async function getDescriptionFromBackend(base64Image) {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/process-image`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base64Image: base64Image })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error("Lỗi từ server backend:", errorData.error);
+                    return null;
+                }
+
+                const data = await response.json();
+                return data.description;
+            } catch (error) {
+                console.error("Không thể kết nối đến server backend:", error);
+                return null;
+            }
+        }
+
+        // --- UPDATED FUNCTION: handleImageSelected now calls the backend ---
+        async function handleImageSelected(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            showScreen('processing-screen');
+            startProcessingSpeechLoop();
+
+            const base64Image = await convertFileToBase64(file);
+            // This now calls our backend instead of Google directly
+            const description = await getDescriptionFromBackend(base64Image);
+
+            stopProcessingSpeechLoop();
+            imageInput.value = '';
+
+            if (description) {
+                descriptionText.innerText = description;
+                showScreen('output-screen');
+                startSpeechQueue(description);
+            } else {
+                alert("Đã có lỗi xảy ra. Vui lòng thử lại.");
+                showScreen('capture-screen');
+            }
+        }
+        
+        // All other functions (scrolling, speech queue, gestures) are unchanged
+        function startAutoScroll() { stopAutoScroll(); const element = descriptionText; const scrollSpeed = 15; scrollInterval = setInterval(() => { if (!isPaused && isSpeaking) { if (element.scrollTop < element.scrollHeight - element.clientHeight) { element.scrollTop += scrollSpeed / 10; } else { stopAutoScroll(); } } }, 100); }
+        function stopAutoScroll() { clearInterval(scrollInterval); scrollInterval = null; }
+        function scrollToCurrentSentence() { if (currentSentenceIndex < 0 || fullSentenceList.length === 0) return; let charCountBefore = 0; for (let i = 0; i < currentSentenceIndex; i++) { charCountBefore += fullSentenceList[i].length; } const totalChars = descriptionText.innerText.length; if (totalChars === 0) return; const scrollRatio = charCountBefore / totalChars; descriptionText.scrollTop = scrollRatio * descriptionText.scrollHeight; }
+        function speakNextSentence() { if (isPaused || sentenceQueue.length === 0) { if (sentenceQueue.length === 0) { isSpeaking = false; stopAutoScroll(); } return; } isSpeaking = true; currentSentenceIndex++; const text = sentenceQueue.shift(); const utterance = new SpeechSynthesisUtterance(text); utterance.lang = 'vi-VN'; utterance.rate = 1.0; if (vietnameseVoice) utterance.voice = vietnameseVoice; utterance.onend = () => { if (!isPaused) speakNextSentence(); }; speechSynthesis.speak(utterance); }
+        function startSpeechQueue(fullText) { stopSpeech(); descriptionText.scrollTop = 0; fullSentenceList = fullText.match(/[^.!?]+[.!?]+\s*|.+/g) || [fullText]; sentenceQueue = [...fullSentenceList]; currentSentenceIndex = -1; speakNextSentence(); startAutoScroll(); }
+        function stopSpeech() { speechSynthesis.cancel(); isSpeaking = false; isPaused = false; stopAutoScroll(); }
+        function stopAndReturnHome() { stopSpeech(); sentenceQueue = []; fullSentenceList = []; currentSentenceIndex = -1; descriptionText.scrollTop = 0; showScreen('capture-screen'); }
+        imageInput.addEventListener('change', handleImageSelected);
+        function handleGestureStart(e) { e.preventDefault(); touchstartX = e.type === 'touchstart' ? e.changedTouches[0].screenX : e.clientX; touchstartY = e.type === 'touchstart' ? e.changedTouches[0].screenY : e.clientY; isSwiping = false; longPressTriggered = false; longPressTimeout = setTimeout(() => { if (!isSwiping) { longPressTriggered = true; startSpeechQueue(descriptionText.innerText); } }, 700); }
+        function handleGestureMove(e) { e.preventDefault(); const currentX = e.type === 'touchmove' ? e.changedTouches[0].screenX : e.clientX; const currentY = e.type === 'touchmove' ? e.changedTouches[0].screenY : e.clientY; if (Math.abs(currentX - touchstartX) > 10 || Math.abs(currentY - touchstartY) > 10) { isSwiping = true; clearTimeout(longPressTimeout); } }
+        function handleGestureEnd(e) { e.preventDefault(); clearTimeout(longPressTimeout); touchendX = e.type === 'touchend' ? e.changedTouches[0].screenX : e.clientX; touchendY = e.type === 'touchend' ? e.changedTouches[0].screenY : e.clientY; const deltaY = touchstartY - touchendY; if (isSwiping) { if (deltaY > 50) { stopAndReturnHome(); } } else if (!longPressTriggered) { if (!captureScreen.classList.contains('hidden')) { imageInput.click(); } else if (!outputScreen.classList.contains('hidden')) { if (isSpeaking && !isPaused) { isPaused = true; speechSynthesis.cancel(); } else if (isPaused) { isPaused = false; scrollToCurrentSentence(); currentSentenceIndex--; sentenceQueue.unshift(fullSentenceList[currentSentenceIndex + 1]); speakNextSentence(); } } } }
+        appContainer.addEventListener('touchstart', handleGestureStart, false);
+        appContainer.addEventListener('touchmove', handleGestureMove, false);
+        appContainer.addEventListener('touchend', handleGestureEnd, false);
+        appContainer.addEventListener('mousedown', handleGestureStart, false);
+        appContainer.addEventListener('mousemove', handleGestureMove, false);
+        appContainer.addEventListener('mouseup', handleGestureEnd, false);
+        
+        // --- Initialization ---
+        setupVietnameseVoice();
+        showScreen('capture-screen');
+    </script>
+</body>
+</html>
+
